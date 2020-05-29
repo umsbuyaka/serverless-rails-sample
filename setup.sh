@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Install before run if you have not installed jq
+# brew install jq 
+
 # This is the master key for this demo.
 RAILS_MASTER_KEY="743c44757a18175254895f68b1369aa5"
 
@@ -16,7 +19,7 @@ SERVICE_STACK_NAME="${SERVICE_NAME}-${STAGE_ENV}"
 ECR_REPO_NAME=${SERVICE_NAME}
 ROLE_BUILD_NAME="${SERVICE_NAME}-build"
 ROLE_EXECUTE_NAME="${SERVICE_NAME}-execute"
-BUCKET_DEPLOY_NAME="${SERVICE_NAME}-deploy-bucket"
+BUCKET_DEPLOY_NAME="${SERVICE_NAME}-deploy-bucket-mmnesport"
 DYNAMO_PREFIX="${SERVICE_NAME}-${STAGE_ENV}"
 
 rm -rf work
@@ -25,7 +28,7 @@ cd ./work
 
 ## Create CodeCommit repository
 aws codecommit create-repository --repository-name ${CODECOMMIT_REPO_NAME}
-git clone --mirror https://github.com/nihemak/serverless-rails-sample.git
+git clone https://github.com/umsbuyaka/serverless-rails-sample.git
 cd serverless-rails-sample
 git push ssh://git-codecommit.${REGION}.amazonaws.com/v1/repos/${CODECOMMIT_REPO_NAME} --all
 cd ..
@@ -100,17 +103,22 @@ aws iam put-role-policy \
 aws s3 mb s3://${BUCKET_DEPLOY_NAME} --region ${REGION}
 
 ## Create ECR build image repository
-ECR_LOGIN=$(aws ecr get-login --no-include-email)
-echo ${ECR_LOGIN} > ecr_login.sh
-chmod 755 ecr_login.sh
-bash ./ecr_login.sh
+#ECR_LOGIN=$(aws ecr get-login --no-include-email)
+aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
 
-ECR_REPO=$(aws ecr create-repository --repository-name ${ECR_REPO_NAME})
-ECR_REPO_URL=$(echo ${ECR_REPO} | jq -r ".repository.repositoryUri")
+#ECR_LOGIN=$(aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com)
+#echo ${ECR_LOGIN}
+#echo ${ECR_LOGIN} > ecr_login.sh
+#chmod 755 ecr_login.sh
+#bash ./ecr_login.sh
+
+#ECR_REPO=$(aws ecr create-repository --repository-name ${ECR_REPO_NAME})
+ECR_REPO_URL=${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO_NAME}
 
 docker pull lambci/lambda:build-ruby2.5
-docker tag lambci/lambda:build-ruby2.5 ${ECR_REPO_URL}:latest
-docker push ${ECR_REPO_URL}:latest
+#docker tag lambci/lambda:build-ruby2.5 ${ECR_REPO_URL}:latest
+docker tag lambci/lambda:build-ruby2.5 ${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO_NAME}:latest
+docker push ${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${ECR_REPO_NAME}:latest
 
 cat <<EOF > ecr_policy.json
 {
@@ -148,8 +156,9 @@ cat <<EOF > Trust-Policy.json
     ]
 }
 EOF
-ROLE_BUILD=$(aws iam create-role --role-name ${ROLE_BUILD_NAME} \
-                                 --assume-role-policy-document file://Trust-Policy.json)
+
+ROLE_BUILD=$(aws iam get-role --role-name ${ROLE_BUILD_NAME})
+#ROLE_BUILD=$(aws iam create-role --role-name ${ROLE_BUILD_NAME} --assume-role-policy-document file://Trust-Policy.json)
 aws iam attach-role-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess \
                            --role-name ${ROLE_BUILD_NAME}
 ROLE_BUILD_ARN=$(echo ${ROLE_BUILD} |jq -r ".Role.Arn")
@@ -216,6 +225,21 @@ cat <<EOF > Environment.json
   ]
 }
 EOF
+
+##----------------------------
+#aws iam get-role --role-name serverless-rails-sample-build1
+#aws iam create-role --role-name serverless-rails-sample-build --assume-role-policy-document file://Trust-Policy.json
+
+#aws iam attach-role-policy --policy-arn arn:aws:iam::aws:policy/AdministratorAccess --role-name serverless-rails-sample-build
+#echo ${ROLE_BUILD} |jq -r ".Role.Arn")
+
+#aws codebuild create-project --name serverless-rails-sample-demo \
+#                               --source file://Source.json \
+#                               --artifacts file://Artifacts.json \
+#                               --environment file://Environment.json \
+#                               --service-role ${ROLE_BUILD_ARN}
+#----------------------------
+
 aws codebuild create-project --name ${CODEBUILD_PROJ_NAME} \
                                --source file://Source.json \
                                --artifacts file://Artifacts.json \
